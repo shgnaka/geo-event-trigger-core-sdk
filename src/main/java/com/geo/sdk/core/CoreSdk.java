@@ -25,23 +25,35 @@ public final class CoreSdk {
             double longitude,
             long timestampEpochMs,
             Map<String, String> attributes) {
+        public InputEvent {
+            attributes = attributes == null ? Map.of() : Collections.unmodifiableMap(new HashMap<>(attributes));
+        }
     }
 
     public record Context(
             long nowEpochMs,
             String zoneId,
             Map<String, String> tags) {
+        public Context {
+            tags = tags == null ? Map.of() : Collections.unmodifiableMap(new HashMap<>(tags));
+        }
     }
 
     public record Candidate(
             String candidateId,
             String type,
             Map<String, Double> signals) {
+        public Candidate {
+            signals = signals == null ? Map.of() : Collections.unmodifiableMap(new HashMap<>(signals));
+        }
     }
 
     public record FeatureVector(
             String featureSchemaVersion,
             Map<String, Double> values) {
+        public FeatureVector {
+            values = values == null ? Map.of() : Collections.unmodifiableMap(new HashMap<>(values));
+        }
     }
 
     public record ScoreResult(
@@ -475,11 +487,20 @@ public final class CoreSdk {
             if (feedback.feedbackId() == null || feedback.feedbackId().isBlank()) {
                 throw new IllegalArgumentException("feedback.feedbackId must not be blank");
             }
+            if (feedback.candidateId() == null || feedback.candidateId().isBlank()) {
+                throw new IllegalArgumentException("feedback.candidateId must not be blank");
+            }
 
             // Idempotency: repeated apply for same feedbackId does nothing.
             String traceChecksum = checkpointChecksum(model, trace);
             if (appliedFeedback.containsKey(feedback.feedbackId())) {
                 return model;
+            }
+            if (trace.selectedCandidate() == null || trace.selectedCandidate().candidateId() == null) {
+                throw new IllegalArgumentException("trace.selectedCandidate must exist");
+            }
+            if (!feedback.candidateId().equals(trace.selectedCandidate().candidateId())) {
+                throw new IllegalArgumentException("feedback candidate mismatch");
             }
 
             history.push(model);
@@ -555,6 +576,9 @@ public final class CoreSdk {
             String featureSchemaVersion,
             Map<String, Double> weights,
             long revision) {
+        public PersistedModel {
+            weights = weights == null ? Map.of() : Collections.unmodifiableMap(new HashMap<>(weights));
+        }
     }
 
     public static final class CompatibilityLoader {

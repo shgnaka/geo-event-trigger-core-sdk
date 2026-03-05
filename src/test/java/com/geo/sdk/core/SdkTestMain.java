@@ -40,8 +40,10 @@ public final class SdkTestMain {
         testPipelineSelectsBestCandidate();
         testPipelineSkipsWhenNoScorableCandidate();
         testPipelineContinuesAfterCandidateFailure();
+        testRecordInputMapsAreDefensivelyCopied();
         testUpdaterUndoAndDeterminism();
         testUpdaterIdempotencyAndCheckpointing();
+        testUpdaterRejectsMismatchedFeedbackCandidate();
     }
 
     private static void runCompatibility() {
@@ -261,6 +263,36 @@ public final class SdkTestMain {
         assertEquals(once.revision(), checkpoint.revisionAfter(), "checkpoint revision after");
     }
 
+    private static void testUpdaterRejectsMismatchedFeedbackCandidate() {
+        PipelineEngine engine = CoreSdk.defaultEngine();
+        ModelState base = CoreSdk.defaultModel();
+        InMemoryUpdater updater = new InMemoryUpdater(0.01, 4);
+
+        InputEvent input = new InputEvent("evt-up3", 35.0, 139.0, 1000L, Map.of("dwell_minutes", "7"));
+        Context ctx = new Context(8_000L, "Asia/Tokyo", Map.of());
+        Budget budget = new Budget(10, 0, 5, 1000L, 0L);
+        PipelineOutcome outcome = engine.run(input, ctx, budget, base);
+
+        FeedbackEvent feedback = new FeedbackEvent("fb-bad", "another-candidate", true, 9_000L);
+        assertThrows(() -> updater.apply(feedback, outcome.trace(), base), "feedback candidate mismatch");
+    }
+
+    private static void testRecordInputMapsAreDefensivelyCopied() {
+        Map<String, String> attrs = new HashMap<>();
+        attrs.put("dwell_minutes", "20");
+        InputEvent input = new InputEvent("evt-immutable", 0.0, 0.0, 1L, attrs);
+        attrs.put("dwell_minutes", "999");
+        assertEquals("20", input.attributes().get("dwell_minutes"), "input attributes should be immutable snapshot");
+        assertThrows(() -> input.attributes().put("new_key", "x"), "UnsupportedOperationException");
+
+        Map<String, Double> signals = new HashMap<>();
+        signals.put("presence", 1.0);
+        Candidate candidate = new Candidate("c-immutable", "location", signals);
+        signals.put("presence", 9.0);
+        assertEquals(1.0, candidate.signals().get("presence"), "candidate signals should be immutable snapshot");
+        assertThrows(() -> candidate.signals().put("x", 1.0), "UnsupportedOperationException");
+    }
+
     private static void testCompatibilityLoad() {
         CompatibilityLoader loader = new CompatibilityLoader();
         PersistedModel old = new PersistedModel("1", "1", Map.of("presence", 0.2, "stay", 0.4), 3);
@@ -334,7 +366,9 @@ public final class SdkTestMain {
             runnable.run();
             throw new AssertionError("Expected exception containing: " + expectedMessagePart);
         } catch (RuntimeException ex) {
-            if (ex.getMessage() == null || !ex.getMessage().contains(expectedMessagePart)) {
+            String message = ex.getMessage() == null ? "" : ex.getMessage();
+            String className = ex.getClass().getSimpleName();
+            if (!message.contains(expectedMessagePart) && !className.contains(expectedMessagePart)) {
                 throw new AssertionError("Unexpected exception message: " + ex.getMessage());
             }
         }
