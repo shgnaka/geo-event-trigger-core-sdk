@@ -1,5 +1,8 @@
 package com.geo.sdk.core;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +47,9 @@ public final class SdkTestMain {
         testUpdaterUndoAndDeterminism();
         testUpdaterIdempotencyAndCheckpointing();
         testUpdaterRejectsMismatchedFeedbackCandidate();
+        testUpdaterReplayLedgerPersistsAcrossInstances();
+        testUpdaterReplayLedgerTtlExpiry();
+        testUpdaterReplayLedgerBounded();
     }
 
     private static void runCompatibility() {
@@ -293,6 +299,92 @@ public final class SdkTestMain {
         assertThrows(() -> candidate.signals().put("x", 1.0), "UnsupportedOperationException");
     }
 
+    private static void testUpdaterReplayLedgerPersistsAcrossInstances() {
+        try {
+            Path ledgerPath = Files.createTempFile("sdk-replay-ledger", ".tsv");
+            MutableTimeSource time = new MutableTimeSource(10_000L);
+            InMemoryUpdater.ReplayLedger ledger = new InMemoryUpdater.FileReplayLedger(ledgerPath);
+
+            PipelineEngine engine = CoreSdk.defaultEngine();
+            ModelState base = CoreSdk.defaultModel();
+            PipelineOutcome outcome = engine.run(
+                    new InputEvent("evt-ledger-1", 0.0, 0.0, 1L, Map.of("dwell_minutes", "6")),
+                    new Context(10_000L, "UTC", Map.of()),
+                    new Budget(10, 0, 10, 0L, 0L),
+                    base);
+
+            InMemoryUpdater updater1 = new InMemoryUpdater(0.01, 4, 86_400_000L, 100, time, ledger);
+            FeedbackEvent feedback = new FeedbackEvent("fb-ledger", outcome.trace().selectedCandidate().candidateId(), true, 10_100L);
+            ModelState once = updater1.apply(feedback, outcome.trace(), base);
+
+            InMemoryUpdater updater2 = new InMemoryUpdater(0.01, 4, 86_400_000L, 100, time, ledger);
+            ModelState twice = updater2.apply(feedback, outcome.trace(), once);
+
+            assertEquals(once.revision(), twice.revision(), "persisted replay ledger should block duplicate apply across instances");
+            Files.deleteIfExists(ledgerPath);
+        } catch (IOException ex) {
+            throw new AssertionError("unexpected io error: " + ex.getMessage());
+        }
+    }
+
+    private static void testUpdaterReplayLedgerTtlExpiry() {
+        try {
+            Path ledgerPath = Files.createTempFile("sdk-replay-ledger-ttl", ".tsv");
+            MutableTimeSource time = new MutableTimeSource(1_000L);
+            InMemoryUpdater.ReplayLedger ledger = new InMemoryUpdater.FileReplayLedger(ledgerPath);
+
+            PipelineEngine engine = CoreSdk.defaultEngine();
+            ModelState base = CoreSdk.defaultModel();
+            PipelineOutcome outcome = engine.run(
+                    new InputEvent("evt-ledger-ttl", 0.0, 0.0, 1L, Map.of("dwell_minutes", "6")),
+                    new Context(1_000L, "UTC", Map.of()),
+                    new Budget(10, 0, 10, 0L, 0L),
+                    base);
+
+            FeedbackEvent feedback = new FeedbackEvent("fb-ttl", outcome.trace().selectedCandidate().candidateId(), true, 1_100L);
+            InMemoryUpdater updater1 = new InMemoryUpdater(0.01, 4, 500L, 100, time, ledger);
+            updater1.apply(feedback, outcome.trace(), base);
+
+            time.set(2_000L);
+            InMemoryUpdater updater2 = new InMemoryUpdater(0.01, 4, 500L, 100, time, ledger);
+            ModelState reapplied = updater2.apply(feedback, outcome.trace(), base);
+            assertTrue(reapplied.revision() > base.revision(), "expired replay ledger entry should allow re-apply");
+            Files.deleteIfExists(ledgerPath);
+        } catch (IOException ex) {
+            throw new AssertionError("unexpected io error: " + ex.getMessage());
+        }
+    }
+
+    private static void testUpdaterReplayLedgerBounded() {
+        try {
+            Path ledgerPath = Files.createTempFile("sdk-replay-ledger-cap", ".tsv");
+            MutableTimeSource time = new MutableTimeSource(5_000L);
+            InMemoryUpdater.ReplayLedger ledger = new InMemoryUpdater.FileReplayLedger(ledgerPath);
+
+            PipelineEngine engine = CoreSdk.defaultEngine();
+            ModelState base = CoreSdk.defaultModel();
+            PipelineOutcome outcome = engine.run(
+                    new InputEvent("evt-ledger-cap", 0.0, 0.0, 1L, Map.of("dwell_minutes", "6")),
+                    new Context(5_000L, "UTC", Map.of()),
+                    new Budget(10, 0, 10, 0L, 0L),
+                    base);
+
+            InMemoryUpdater updater1 = new InMemoryUpdater(0.01, 8, 86_400_000L, 2, time, ledger);
+            ModelState m1 = updater1.apply(new FeedbackEvent("fb-cap-1", outcome.trace().selectedCandidate().candidateId(), true, 5_100L), outcome.trace(), base);
+            time.set(5_010L);
+            ModelState m2 = updater1.apply(new FeedbackEvent("fb-cap-2", outcome.trace().selectedCandidate().candidateId(), true, 5_110L), outcome.trace(), m1);
+            time.set(5_020L);
+            ModelState m3 = updater1.apply(new FeedbackEvent("fb-cap-3", outcome.trace().selectedCandidate().candidateId(), true, 5_120L), outcome.trace(), m2);
+
+            InMemoryUpdater updater2 = new InMemoryUpdater(0.01, 8, 86_400_000L, 2, time, ledger);
+            ModelState replayOld = updater2.apply(new FeedbackEvent("fb-cap-1", outcome.trace().selectedCandidate().candidateId(), true, 5_130L), outcome.trace(), m3);
+            assertTrue(replayOld.revision() > m3.revision(), "oldest feedback should be evicted when maxReplayEntries is exceeded");
+            Files.deleteIfExists(ledgerPath);
+        } catch (IOException ex) {
+            throw new AssertionError("unexpected io error: " + ex.getMessage());
+        }
+    }
+
     private static void testCompatibilityLoad() {
         CompatibilityLoader loader = new CompatibilityLoader();
         PersistedModel old = new PersistedModel("1", "1", Map.of("presence", 0.2, "stay", 0.4), 3);
@@ -371,6 +463,23 @@ public final class SdkTestMain {
             if (!message.contains(expectedMessagePart) && !className.contains(expectedMessagePart)) {
                 throw new AssertionError("Unexpected exception message: " + ex.getMessage());
             }
+        }
+    }
+
+    private static final class MutableTimeSource implements InMemoryUpdater.TimeSource {
+        private long now;
+
+        private MutableTimeSource(long now) {
+            this.now = now;
+        }
+
+        @Override
+        public long nowEpochMs() {
+            return now;
+        }
+
+        private void set(long now) {
+            this.now = now;
         }
     }
 }
