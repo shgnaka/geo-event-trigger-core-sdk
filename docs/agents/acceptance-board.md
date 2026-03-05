@@ -1,9 +1,9 @@
 # Acceptance Board
 
 ## Milestone Status
-- Current milestone: M1
-- State: done
-- Last updated: 2026-03-05 (release-tag rehearsal completed)
+- Current milestone: M2
+- State: in-progress
+- Last updated: 2026-03-05 (M2 formal release started)
 
 ## Gate Checklist
 
@@ -19,6 +19,12 @@
 - [x] #6 updater apply/undo + checkpoints
 - [x] #7 compatibility loader hardening
 - [x] release-tag rehearsal (`v0.1.0-rc1` temporary tag flow validated and cleaned up)
+
+### M2
+- [x] formal release automation prepared (`scripts/release.sh`, runbook)
+- [ ] `v0.1.0` tag created on origin
+- [ ] GitHub Release published (`isDraft=false`, `isPrerelease=false`)
+- [ ] release URL recorded
 
 ## Blockers
 - none
