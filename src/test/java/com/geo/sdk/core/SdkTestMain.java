@@ -33,6 +33,7 @@ public final class SdkTestMain {
         testUpdaterUndoAndDeterminism();
         testUpdaterIdempotencyAndCheckpointing();
         testCompatibilityLoad();
+        testCompatibilityRejectsUnsupportedOrDowngrade();
     }
 
     private static void runContract() {
@@ -251,6 +252,20 @@ public final class SdkTestMain {
         assertEquals("2", migrated.featureSchemaVersion(), "schema version should migrate");
         assertTrue(migrated.weights().containsKey("dwell"), "stay should map to dwell");
         assertTrue(migrated.weights().containsKey("night_bonus"), "new features should be backfilled");
+
+        CompatibilityLoader.CompatibilityLoadResult report = loader.loadWithReport(old, "2", "2");
+        assertTrue(report.appliedMigrations().contains("schema:1->2:stay-to-dwell"), "report should include stay-to-dwell migration");
+        assertTrue(report.appliedMigrations().contains("model:1->2:add-model_migration_bias"), "report should include model migration");
+    }
+
+    private static void testCompatibilityRejectsUnsupportedOrDowngrade() {
+        CompatibilityLoader loader = new CompatibilityLoader();
+        PersistedModel current = new PersistedModel("2", "2", Map.of("presence", 0.2), 3);
+
+        assertThrows(() -> loader.load(current, "1", "2"), "model downgrade is not supported");
+        assertThrows(() -> loader.load(current, "2", "1"), "schema downgrade is not supported");
+        assertThrows(() -> loader.load(current, "3", "2"), "target model version unsupported");
+        assertThrows(() -> loader.load(new PersistedModel("x", "2", Map.of(), 0), "2", "2"), "model version must be integer");
     }
 
     private static void testContractSignaturesPublished() {
@@ -293,6 +308,17 @@ public final class SdkTestMain {
     private static void assertNotNull(Object value, String message) {
         if (value == null) {
             throw new AssertionError(message);
+        }
+    }
+
+    private static void assertThrows(Runnable runnable, String expectedMessagePart) {
+        try {
+            runnable.run();
+            throw new AssertionError("Expected exception containing: " + expectedMessagePart);
+        } catch (RuntimeException ex) {
+            if (ex.getMessage() == null || !ex.getMessage().contains(expectedMessagePart)) {
+                throw new AssertionError("Unexpected exception message: " + ex.getMessage());
+            }
         }
     }
 }
