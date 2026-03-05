@@ -1,4 +1,4 @@
-.PHONY: lint test contract consistency compatibility policy security
+.PHONY: lint test contract consistency compatibility policy artifact verify-consumer security
 
 lint:
 	ci/run-lint.sh
@@ -17,6 +17,12 @@ compatibility:
 
 policy:
 	ci/run-policy.sh
+
+artifact:
+	scripts/build_artifact.sh 0.1.0
+
+verify-consumer:
+	scripts/verify_consumer.sh 0.1.0
 
 security:
 	@echo "Run local secret scan"
