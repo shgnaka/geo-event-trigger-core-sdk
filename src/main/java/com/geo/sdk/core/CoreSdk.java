@@ -1,8 +1,15 @@
 package com.geo.sdk.core;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.time.Clock;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
@@ -460,22 +467,141 @@ public final class CoreSdk {
                 String checksumAfter) {
         }
 
+        public record ReplayRecord(
+                String feedbackId,
+                String checksum,
+                long appliedAtEpochMs) {
+        }
+
+        public interface ReplayLedger {
+            Map<String, ReplayRecord> load();
+
+            void save(Map<String, ReplayRecord> records);
+        }
+
+        public interface TimeSource {
+            long nowEpochMs();
+        }
+
+        public static final class SystemTimeSource implements TimeSource {
+            @Override
+            public long nowEpochMs() {
+                return Clock.systemUTC().millis();
+            }
+        }
+
+        public static final class NoopReplayLedger implements ReplayLedger {
+            @Override
+            public Map<String, ReplayRecord> load() {
+                return Map.of();
+            }
+
+            @Override
+            public void save(Map<String, ReplayRecord> records) {
+                // no-op
+            }
+        }
+
+        public static final class FileReplayLedger implements ReplayLedger {
+            private final Path path;
+
+            public FileReplayLedger(Path path) {
+                this.path = Objects.requireNonNull(path);
+            }
+
+            @Override
+            public Map<String, ReplayRecord> load() {
+                if (!Files.exists(path)) {
+                    return Map.of();
+                }
+                Map<String, ReplayRecord> result = new HashMap<>();
+                try {
+                    for (String line : Files.readAllLines(path, StandardCharsets.UTF_8)) {
+                        if (line.isBlank() || line.startsWith("#")) {
+                            continue;
+                        }
+                        String[] parts = line.split("\t", 3);
+                        if (parts.length != 3) {
+                            continue;
+                        }
+                        try {
+                            long epoch = Long.parseLong(parts[2]);
+                            ReplayRecord record = new ReplayRecord(parts[0], parts[1], epoch);
+                            result.put(parts[0], record);
+                        } catch (NumberFormatException ignore) {
+                            // skip malformed line
+                        }
+                    }
+                } catch (IOException ex) {
+                    throw new IllegalStateException("failed to load replay ledger: " + path, ex);
+                }
+                return result;
+            }
+
+            @Override
+            public void save(Map<String, ReplayRecord> records) {
+                try {
+                    Path parent = path.getParent();
+                    if (parent != null) {
+                        Files.createDirectories(parent);
+                    }
+                    List<ReplayRecord> sorted = records.values().stream()
+                            .sorted(Comparator.comparingLong(ReplayRecord::appliedAtEpochMs))
+                            .toList();
+                    List<String> lines = new ArrayList<>(sorted.size());
+                    for (ReplayRecord record : sorted) {
+                        lines.add(record.feedbackId() + "\t" + record.checksum() + "\t" + record.appliedAtEpochMs());
+                    }
+                    Files.write(path, lines, StandardCharsets.UTF_8,
+                            StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+                } catch (IOException ex) {
+                    throw new IllegalStateException("failed to save replay ledger: " + path, ex);
+                }
+            }
+        }
+
         private final double learningRate;
         private final int maxHistory;
+        private final long replayTtlMs;
+        private final int maxReplayEntries;
+        private final TimeSource timeSource;
+        private final ReplayLedger replayLedger;
         private final Deque<ModelState> history = new ArrayDeque<>();
         private final Deque<UpdateCheckpoint> checkpoints = new ArrayDeque<>();
-        private final Map<String, String> appliedFeedback = new HashMap<>();
+        private final Map<String, ReplayRecord> replayRecords = new HashMap<>();
 
         public InMemoryUpdater(double learningRate) {
             this(learningRate, 128);
         }
 
         public InMemoryUpdater(double learningRate, int maxHistory) {
+            this(learningRate, maxHistory, 14L * 24 * 60 * 60 * 1000, 64_000,
+                    new SystemTimeSource(), new NoopReplayLedger());
+        }
+
+        public InMemoryUpdater(
+                double learningRate,
+                int maxHistory,
+                long replayTtlMs,
+                int maxReplayEntries,
+                TimeSource timeSource,
+                ReplayLedger replayLedger) {
             this.learningRate = learningRate;
             if (maxHistory <= 0) {
                 throw new IllegalArgumentException("maxHistory must be > 0");
             }
+            if (replayTtlMs <= 0) {
+                throw new IllegalArgumentException("replayTtlMs must be > 0");
+            }
+            if (maxReplayEntries <= 0) {
+                throw new IllegalArgumentException("maxReplayEntries must be > 0");
+            }
             this.maxHistory = maxHistory;
+            this.replayTtlMs = replayTtlMs;
+            this.maxReplayEntries = maxReplayEntries;
+            this.timeSource = Objects.requireNonNull(timeSource);
+            this.replayLedger = Objects.requireNonNull(replayLedger);
+            initializeReplayLedger();
         }
 
         @Override
@@ -491,9 +617,12 @@ public final class CoreSdk {
                 throw new IllegalArgumentException("feedback.candidateId must not be blank");
             }
 
+            long now = timeSource.nowEpochMs();
+            pruneReplayLedger(now);
+
             // Idempotency: repeated apply for same feedbackId does nothing.
             String traceChecksum = checkpointChecksum(model, trace);
-            if (appliedFeedback.containsKey(feedback.feedbackId())) {
+            if (replayRecords.containsKey(feedback.feedbackId())) {
                 return model;
             }
             if (trace.selectedCandidate() == null || trace.selectedCandidate().candidateId() == null) {
@@ -525,8 +654,10 @@ public final class CoreSdk {
                     checkpointChecksum(model, trace),
                     checkpointChecksum(updated, trace));
             checkpoints.push(checkpoint);
-            appliedFeedback.put(feedback.feedbackId(), traceChecksum);
+            replayRecords.put(feedback.feedbackId(), new ReplayRecord(feedback.feedbackId(), traceChecksum, now));
             trimToMaxHistory();
+            trimReplayLedgerToLimit();
+            persistReplayLedger();
             return updated;
         }
 
@@ -538,7 +669,8 @@ public final class CoreSdk {
             ModelState previous = history.pop();
             if (!checkpoints.isEmpty()) {
                 UpdateCheckpoint checkpoint = checkpoints.pop();
-                appliedFeedback.remove(checkpoint.feedbackId());
+                replayRecords.remove(checkpoint.feedbackId());
+                persistReplayLedger();
             }
             return previous;
         }
@@ -552,9 +684,53 @@ public final class CoreSdk {
                 history.removeLast();
             }
             while (checkpoints.size() > maxHistory) {
-                UpdateCheckpoint dropped = checkpoints.removeLast();
-                appliedFeedback.remove(dropped.feedbackId());
+                checkpoints.removeLast();
             }
+        }
+
+        private void initializeReplayLedger() {
+            Map<String, ReplayRecord> loaded = replayLedger.load();
+            if (loaded == null || loaded.isEmpty()) {
+                return;
+            }
+            for (ReplayRecord record : loaded.values()) {
+                if (record == null || record.feedbackId() == null || record.feedbackId().isBlank()) {
+                    continue;
+                }
+                replayRecords.put(record.feedbackId(), record);
+            }
+            pruneReplayLedger(timeSource.nowEpochMs());
+            trimReplayLedgerToLimit();
+            persistReplayLedger();
+        }
+
+        private void pruneReplayLedger(long nowEpochMs) {
+            List<String> expired = new ArrayList<>();
+            for (ReplayRecord record : replayRecords.values()) {
+                if (nowEpochMs - record.appliedAtEpochMs() > replayTtlMs) {
+                    expired.add(record.feedbackId());
+                }
+            }
+            for (String feedbackId : expired) {
+                replayRecords.remove(feedbackId);
+            }
+        }
+
+        private void trimReplayLedgerToLimit() {
+            if (replayRecords.size() <= maxReplayEntries) {
+                return;
+            }
+            List<ReplayRecord> sorted = replayRecords.values().stream()
+                    .sorted(Comparator.comparingLong(ReplayRecord::appliedAtEpochMs))
+                    .toList();
+            int removeCount = replayRecords.size() - maxReplayEntries;
+            for (int i = 0; i < removeCount; i++) {
+                replayRecords.remove(sorted.get(i).feedbackId());
+            }
+        }
+
+        private void persistReplayLedger() {
+            replayLedger.save(replayRecords);
         }
 
         private static String checkpointChecksum(ModelState state, ExecutionTrace trace) {
