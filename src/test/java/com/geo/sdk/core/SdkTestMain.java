@@ -14,9 +14,15 @@ public final class SdkTestMain {
         switch (suite) {
             case "unit" -> runUnit();
             case "contract" -> runContract();
+            case "consistency" -> runConsistency();
+            case "compatibility" -> runCompatibility();
+            case "policy" -> runPolicy();
             case "all" -> {
                 runUnit();
                 runContract();
+                runConsistency();
+                runCompatibility();
+                runPolicy();
             }
             default -> throw new IllegalArgumentException("unknown suite: " + suite);
         }
@@ -25,15 +31,27 @@ public final class SdkTestMain {
 
     private static void runUnit() {
         testPipelineHappyPath();
+        testContractSignaturesPublished();
+        testPluginSwappable();
+    }
+
+    private static void runConsistency() {
+        testPipelineHappyPath();
         testPipelineSelectsBestCandidate();
         testPipelineSkipsWhenNoScorableCandidate();
         testPipelineContinuesAfterCandidateFailure();
-        testPolicyBoundaries();
-        testPolicyForceAndValidationControls();
         testUpdaterUndoAndDeterminism();
         testUpdaterIdempotencyAndCheckpointing();
+    }
+
+    private static void runCompatibility() {
         testCompatibilityLoad();
         testCompatibilityRejectsUnsupportedOrDowngrade();
+    }
+
+    private static void runPolicy() {
+        testPolicyBoundaries();
+        testPolicyForceAndValidationControls();
     }
 
     private static void runContract() {
