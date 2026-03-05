@@ -25,6 +25,9 @@ public final class SdkTestMain {
 
     private static void runUnit() {
         testPipelineHappyPath();
+        testPipelineSelectsBestCandidate();
+        testPipelineSkipsWhenNoScorableCandidate();
+        testPipelineContinuesAfterCandidateFailure();
         testPolicyBoundaries();
         testUpdaterUndoAndDeterminism();
         testCompatibilityLoad();
@@ -48,9 +51,100 @@ public final class SdkTestMain {
 
         PipelineOutcome outcome = engine.run(input, ctx, budget, model);
         assertTrue(outcome.actionResult().success(), "action should succeed");
-        assertNotNull(outcome.trace().candidate(), "candidate must exist");
-        assertNotNull(outcome.trace().featureVector(), "features must exist");
-        assertNotNull(outcome.trace().score(), "score must exist");
+        assertNotNull(outcome.trace().selectedCandidate(), "candidate must exist");
+        assertNotNull(outcome.trace().selectedFeatureVector(), "features must exist");
+        assertNotNull(outcome.trace().selectedScore(), "score must exist");
+        assertEquals("executed", outcome.trace().status(), "status should be executed");
+    }
+
+    private static void testPipelineSelectsBestCandidate() {
+        Detector detector = (input, ctx) -> List.of(
+                new Candidate("c-low", "location", Map.of("presence", 1.0, "dwell", 1.0)),
+                new Candidate("c-high", "location", Map.of("presence", 1.0, "dwell", 30.0))
+        );
+        FeatureExtractor fx = (candidate, ctx) -> new FeatureVector("2", candidate.signals());
+        Scorer scorer = (features, model) -> new ScoreResult(
+                features.values().getOrDefault("dwell", 0.0),
+                model.modelVersion(),
+                "trace-score");
+
+        PipelineEngine engine = new PipelineEngine(
+                detector,
+                fx,
+                scorer,
+                new BudgetPolicyEngine(0.2),
+                new NoopActionExecutor());
+
+        PipelineOutcome outcome = engine.run(
+                new InputEvent("evt-best", 35.0, 139.0, 1000L, Map.of()),
+                new Context(10_000L, "Asia/Tokyo", Map.of()),
+                new Budget(5, 0, 5, 1000L, 0L),
+                CoreSdk.defaultModel());
+
+        assertEquals("c-high", outcome.trace().selectedCandidate().candidateId(), "best candidate should be selected");
+        assertEquals(2, outcome.trace().evaluations().size(), "both candidates should be evaluated");
+        long selectedCount = outcome.trace().evaluations().stream().filter(CandidateEvaluation::selected).count();
+        assertEquals(1L, selectedCount, "exactly one candidate should be marked selected");
+    }
+
+    private static void testPipelineSkipsWhenNoScorableCandidate() {
+        Detector detector = (input, ctx) -> List.of(new Candidate("c1", "location", Map.of("presence", 1.0)));
+        FeatureExtractor failingFx = (candidate, ctx) -> { throw new IllegalStateException("bad feature"); };
+        Scorer scorer = (features, model) -> new ScoreResult(1.0, model.modelVersion(), "trace");
+
+        PipelineEngine engine = new PipelineEngine(
+                detector,
+                failingFx,
+                scorer,
+                new BudgetPolicyEngine(0.2),
+                new NoopActionExecutor());
+
+        PipelineOutcome outcome = engine.run(
+                new InputEvent("evt-no-score", 0, 0, 1L, Map.of()),
+                new Context(2_000L, "UTC", Map.of()),
+                new Budget(1, 0, 1, 0L, 0L),
+                CoreSdk.defaultModel());
+
+        assertEquals(ActionType.SKIP, outcome.trace().actionPlan().type(), "no-scorable should skip");
+        assertEquals("no-scorable-candidate", outcome.trace().actionPlan().reason(), "reason should be explicit");
+        assertEquals("skipped", outcome.trace().status(), "status should be skipped");
+    }
+
+    private static void testPipelineContinuesAfterCandidateFailure() {
+        Detector detector = (input, ctx) -> List.of(
+                new Candidate("c-bad", "location", Map.of("presence", 1.0)),
+                new Candidate("c-good", "location", Map.of("presence", 1.0, "dwell", 5.0))
+        );
+
+        FeatureExtractor fx = (candidate, ctx) -> {
+            if ("c-bad".equals(candidate.candidateId())) {
+                throw new IllegalArgumentException("bad candidate");
+            }
+            return new FeatureVector("2", candidate.signals());
+        };
+
+        Scorer scorer = (features, model) -> new ScoreResult(
+                features.values().getOrDefault("dwell", 0.0),
+                model.modelVersion(),
+                "trace-continue");
+
+        PipelineEngine engine = new PipelineEngine(
+                detector,
+                fx,
+                scorer,
+                new BudgetPolicyEngine(0.2),
+                new NoopActionExecutor());
+
+        PipelineOutcome outcome = engine.run(
+                new InputEvent("evt-continue", 0, 0, 1L, Map.of()),
+                new Context(10_000L, "UTC", Map.of()),
+                new Budget(10, 0, 10, 0L, 0L),
+                CoreSdk.defaultModel());
+
+        assertEquals("c-good", outcome.trace().selectedCandidate().candidateId(), "pipeline should continue after failure");
+        boolean hasFailureMarker = outcome.trace().evaluations().stream()
+                .anyMatch(e -> "candidate-processing-error:IllegalArgumentException".equals(e.decisionReason()));
+        assertTrue(hasFailureMarker, "candidate failure should be captured in evaluation trace");
     }
 
     private static void testPolicyBoundaries() {
@@ -82,7 +176,7 @@ public final class SdkTestMain {
         Budget budget = new Budget(10, 0, 5, 1000L, 0L);
 
         PipelineOutcome first = engine.run(input, ctx, budget, base);
-        ModelState updated = updater.apply(new FeedbackEvent(first.trace().candidate().candidateId(), true, 9_000L), first.trace(), base);
+        ModelState updated = updater.apply(new FeedbackEvent(first.trace().selectedCandidate().candidateId(), true, 9_000L), first.trace(), base);
 
         ModelState rolledBack = updater.undo();
         assertEquals(base.weights(), rolledBack.weights(), "undo should restore exact previous weights");

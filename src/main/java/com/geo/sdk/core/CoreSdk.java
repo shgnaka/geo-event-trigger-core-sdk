@@ -89,12 +89,26 @@ public final class CoreSdk {
         }
     }
 
-    public record ExecutionTrace(
-            String traceId,
+    public record CandidateEvaluation(
             Candidate candidate,
             FeatureVector featureVector,
             ScoreResult score,
-            ActionPlan actionPlan) {
+            boolean selected,
+            String decisionReason) {
+    }
+
+    public record ExecutionTrace(
+            String traceId,
+            String status,
+            Candidate selectedCandidate,
+            FeatureVector selectedFeatureVector,
+            ScoreResult selectedScore,
+            List<CandidateEvaluation> evaluations,
+            ActionPlan actionPlan,
+            String failureStage) {
+        public ExecutionTrace {
+            evaluations = Collections.unmodifiableList(new ArrayList<>(evaluations));
+        }
     }
 
     public record PipelineOutcome(
@@ -135,6 +149,7 @@ public final class CoreSdk {
         private final Scorer scorer;
         private final Policy policy;
         private final ActionExecutor actionExecutor;
+        private final int maxCandidatesToEvaluate;
 
         public PipelineEngine(
                 Detector detector,
@@ -142,30 +157,164 @@ public final class CoreSdk {
                 Scorer scorer,
                 Policy policy,
                 ActionExecutor actionExecutor) {
+            this(detector, featureExtractor, scorer, policy, actionExecutor, 10);
+        }
+
+        public PipelineEngine(
+                Detector detector,
+                FeatureExtractor featureExtractor,
+                Scorer scorer,
+                Policy policy,
+                ActionExecutor actionExecutor,
+                int maxCandidatesToEvaluate) {
             this.detector = Objects.requireNonNull(detector);
             this.featureExtractor = Objects.requireNonNull(featureExtractor);
             this.scorer = Objects.requireNonNull(scorer);
             this.policy = Objects.requireNonNull(policy);
             this.actionExecutor = Objects.requireNonNull(actionExecutor);
+            if (maxCandidatesToEvaluate <= 0) {
+                throw new IllegalArgumentException("maxCandidatesToEvaluate must be > 0");
+            }
+            this.maxCandidatesToEvaluate = maxCandidatesToEvaluate;
         }
 
         public PipelineOutcome run(InputEvent input, Context ctx, Budget budget, ModelState model) {
+            validateInput(input, ctx, budget, model);
+            String traceId = UUID.randomUUID().toString();
+
             List<Candidate> candidates = detector.detect(input, ctx);
-            if (candidates.isEmpty()) {
-                ActionPlan noAction = new ActionPlan(ActionType.SKIP, "no-candidate", ctx.nowEpochMs());
-                ActionResult result = actionExecutor.execute(noAction);
-                ExecutionTrace trace = new ExecutionTrace(UUID.randomUUID().toString(), null, null,
-                        new ScoreResult(0.0, model.modelVersion(), UUID.randomUUID().toString()), noAction);
-                return new PipelineOutcome(result, trace, model);
+            if (candidates == null || candidates.isEmpty()) {
+                return skipOutcome(traceId, "no-candidate", "detector", model, List.of(), ctx.nowEpochMs());
             }
 
-            Candidate candidate = candidates.get(0);
-            FeatureVector featureVector = featureExtractor.extract(candidate, ctx);
-            ScoreResult score = scorer.score(featureVector, model);
-            ActionPlan plan = policy.decide(score, budget, ctx);
-            ActionResult result = actionExecutor.execute(plan);
-            ExecutionTrace trace = new ExecutionTrace(score.traceId(), candidate, featureVector, score, plan);
+            List<CandidateEvaluation> provisional = new ArrayList<>();
+            Candidate bestCandidate = null;
+            FeatureVector bestFeatures = null;
+            ScoreResult bestScore = null;
+
+            int evaluated = 0;
+            for (Candidate candidate : candidates) {
+                if (candidate == null) {
+                    continue;
+                }
+                if (evaluated >= maxCandidatesToEvaluate) {
+                    provisional.add(new CandidateEvaluation(null, null, null, false, "max-candidates-reached"));
+                    break;
+                }
+                evaluated++;
+
+                try {
+                    FeatureVector features = featureExtractor.extract(candidate, ctx);
+                    if (features == null) {
+                        provisional.add(new CandidateEvaluation(candidate, null, null, false, "feature-null"));
+                        continue;
+                    }
+
+                    ScoreResult score = scorer.score(features, model);
+                    if (score == null) {
+                        provisional.add(new CandidateEvaluation(candidate, features, null, false, "score-null"));
+                        continue;
+                    }
+
+                    provisional.add(new CandidateEvaluation(candidate, features, score, false, "scored"));
+                    if (bestScore == null || score.value() > bestScore.value()) {
+                        bestCandidate = candidate;
+                        bestFeatures = features;
+                        bestScore = score;
+                    }
+                } catch (RuntimeException ex) {
+                    provisional.add(new CandidateEvaluation(candidate, null, null, false,
+                            "candidate-processing-error:" + ex.getClass().getSimpleName()));
+                }
+            }
+
+            if (bestCandidate == null || bestFeatures == null || bestScore == null) {
+                return skipOutcome(traceId, "no-scorable-candidate", "feature-or-score", model, provisional,
+                        ctx.nowEpochMs());
+            }
+
+            List<CandidateEvaluation> finalized = markSelected(provisional, bestCandidate);
+            ActionPlan plan;
+            try {
+                plan = policy.decide(bestScore, budget, ctx);
+            } catch (RuntimeException ex) {
+                return skipOutcome(traceId, "policy-error", "policy", model, finalized, ctx.nowEpochMs());
+            }
+
+            ActionResult result;
+            try {
+                result = actionExecutor.execute(plan);
+                if (result == null) {
+                    result = new ActionResult(false, "execution-returned-null");
+                }
+            } catch (RuntimeException ex) {
+                result = new ActionResult(false, "execution-error:" + ex.getClass().getSimpleName());
+            }
+
+            String status = result.success() ? "executed" : "execution-failed";
+            String failureStage = result.success() ? "none" : "action";
+            ExecutionTrace trace = new ExecutionTrace(
+                    traceId,
+                    status,
+                    bestCandidate,
+                    bestFeatures,
+                    bestScore,
+                    finalized,
+                    plan,
+                    failureStage);
             return new PipelineOutcome(result, trace, model);
+        }
+
+        private static void validateInput(InputEvent input, Context ctx, Budget budget, ModelState model) {
+            Objects.requireNonNull(input, "input must not be null");
+            Objects.requireNonNull(ctx, "ctx must not be null");
+            Objects.requireNonNull(budget, "budget must not be null");
+            Objects.requireNonNull(model, "model must not be null");
+            if (input.eventId() == null || input.eventId().isBlank()) {
+                throw new IllegalArgumentException("input.eventId must not be blank");
+            }
+            if (ctx.nowEpochMs() < 0) {
+                throw new IllegalArgumentException("ctx.nowEpochMs must be >= 0");
+            }
+        }
+
+        private static PipelineOutcome skipOutcome(
+                String traceId,
+                String reason,
+                String failureStage,
+                ModelState model,
+                List<CandidateEvaluation> evaluations,
+                long nowEpochMs) {
+            ActionPlan noAction = new ActionPlan(ActionType.SKIP, reason, nowEpochMs);
+            ActionResult result = new ActionResult(true, "executed:SKIP:" + reason);
+            ExecutionTrace trace = new ExecutionTrace(
+                    traceId,
+                    "skipped",
+                    null,
+                    null,
+                    null,
+                    evaluations,
+                    noAction,
+                    failureStage);
+            return new PipelineOutcome(result, trace, model);
+        }
+
+        private static List<CandidateEvaluation> markSelected(
+                List<CandidateEvaluation> evaluations,
+                Candidate selectedCandidate) {
+            List<CandidateEvaluation> result = new ArrayList<>(evaluations.size());
+            for (CandidateEvaluation evaluation : evaluations) {
+                boolean selected = evaluation.candidate() != null
+                        && evaluation.candidate().candidateId().equals(selectedCandidate.candidateId());
+                String reason = selected ? "selected" : evaluation.decisionReason();
+                result.add(new CandidateEvaluation(
+                        evaluation.candidate(),
+                        evaluation.featureVector(),
+                        evaluation.score(),
+                        selected,
+                        reason));
+            }
+            return result;
         }
     }
 
@@ -258,12 +407,12 @@ public final class CoreSdk {
         @Override
         public ModelState apply(FeedbackEvent feedback, ExecutionTrace trace, ModelState model) {
             history.push(model);
-            if (trace.featureVector() == null) {
+            if (trace.selectedFeatureVector() == null) {
                 return model;
             }
             Map<String, Double> nextWeights = new HashMap<>(model.weights());
             double direction = feedback.positive() ? 1.0 : -1.0;
-            for (Map.Entry<String, Double> feature : trace.featureVector().values().entrySet()) {
+            for (Map.Entry<String, Double> feature : trace.selectedFeatureVector().values().entrySet()) {
                 double oldWeight = nextWeights.getOrDefault(feature.getKey(), 0.0d);
                 double updated = oldWeight + (direction * feature.getValue() * learningRate);
                 nextWeights.put(feature.getKey(), updated);
