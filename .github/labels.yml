@@ -1,0 +1,70 @@
+- name: status:triage
+  color: D4C5F9
+  description: New issue, needs triage
+- name: status:ready
+  color: 0E8A16
+  description: Ready to implement
+- name: status:blocked
+  color: B60205
+  description: Blocked by dependency or decision
+- name: priority:p0
+  color: B60205
+  description: Critical urgency
+- name: priority:p1
+  color: D93F0B
+  description: High priority
+- name: priority:p2
+  color: FBCA04
+  description: Default priority
+- name: priority:p3
+  color: C2E0C6
+  description: Low priority
+- name: risk:high
+  color: B60205
+  description: High risk change
+- name: risk:medium
+  color: FBCA04
+  description: Medium risk change
+- name: risk:low
+  color: 0E8A16
+  description: Low risk change
+- name: area:security
+  color: B60205
+  description: Security or privacy concern
+- name: area:release
+  color: 1D76DB
+  description: Release management
+- name: area:api
+  color: 5319E7
+  description: Public API or contract
+- name: area:test
+  color: 006B75
+  description: Testing and verification
+- name: agent:pm
+  color: 0052CC
+  description: PM agent scope
+- name: agent:orchestrator
+  color: 0052CC
+  description: Technical orchestration scope
+- name: agent:api-contract
+  color: 0052CC
+  description: API contract scope
+- name: agent:pipeline
+  color: 0052CC
+  description: Core pipeline implementation scope
+- name: agent:policy
+  color: 0052CC
+  description: Policy control scope
+- name: agent:updater
+  color: 0052CC
+  description: Learning/model update scope
+- name: agent:compat
+  color: 0052CC
+  description: Persistence and compatibility scope
+- name: agent:test
+  color: 0052CC
+  description: Test automation scope
+- name: agent:security-audit
+  color: 0052CC
+  description: Privacy/security audit scope
+

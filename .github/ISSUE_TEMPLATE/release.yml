@@ -1,0 +1,38 @@
+name: Release
+description: Plan and track SemVer release from main
+title: "release: v"
+labels:
+  - area:release
+  - status:triage
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Target Version
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Included issues/PRs and notable changes
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Release Checks
+      placeholder: |
+        - [ ] lint/unit/contract/security all green on main
+        - [ ] changelog updated
+        - [ ] migration notes (if any)
+        - [ ] rollback tag identified
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Release Notes Draft
+      description: User-facing summary
+

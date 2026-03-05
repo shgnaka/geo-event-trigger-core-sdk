@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run lint target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x ci/run-lint.sh ]; then
+            ci/run-lint.sh
+          elif [ -f Makefile ] && grep -qE '^lint:' Makefile; then
+            make lint
+          elif [ -f package.json ] && grep -q '"lint"' package.json; then
+            npm ci
+            npm run lint
+          else
+            echo "No lint target found. Skipping."
+          fi
+
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run unit test target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x ci/run-unit.sh ]; then
+            ci/run-unit.sh
+          elif [ -f Makefile ] && grep -qE '^test:' Makefile; then
+            make test
+          elif [ -f package.json ] && grep -q '"test"' package.json; then
+            npm ci
+            npm test -- --ci
+          else
+            echo "No unit target found. Skipping."
+          fi
+
+  contract:
+    name: contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run contract test target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x ci/run-contract.sh ]; then
+            ci/run-contract.sh
+          elif [ -f Makefile ] && grep -qE '^contract:' Makefile; then
+            make contract
+          elif [ -f package.json ] && grep -qE '"contract(:test)?"|"test:contract"' package.json; then
+            npm ci
+            if npm run | grep -q 'test:contract'; then
+              npm run test:contract
+            else
+              npm run contract:test
+            fi
+          else
+            echo "No contract target found. Skipping."
+          fi
+
+  security:
+    name: security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for likely secrets in repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nE '(AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|AIza[0-9A-Za-z_-]{35}|-----BEGIN (RSA|OPENSSH|EC) PRIVATE KEY-----)' -- . ':!docs/*'; then
+            echo "Potential secret-like string found."
+            exit 1
+          fi
+          echo "No secret-like strings detected."
+      - name: Dependency audit (best effort)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f package-lock.json ] && [ -f package.json ]; then
+            npm ci
+            npm audit --audit-level=high
+          else
+            echo "No dependency lockfile found. Skipping dependency audit."
+          fi
+

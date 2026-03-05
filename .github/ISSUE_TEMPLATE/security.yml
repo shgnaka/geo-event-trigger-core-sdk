@@ -1,0 +1,48 @@
+name: Security / Privacy
+description: Report potential security or privacy concerns
+title: "security: "
+labels:
+  - status:triage
+  - risk:high
+  - area:security
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Finding Summary
+      description: Describe the concern and likely attack/failure path
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Secret exposure
+        - External data transfer risk
+        - Log over-collection
+        - Dependency vulnerability
+        - Access control
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: affected
+    attributes:
+      label: Affected Area
+      placeholder: modules/files/endpoints affected
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, test output, code references
+    validations:
+      required: true
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Suggested Mitigation
+      placeholder: immediate workaround + permanent fix
+

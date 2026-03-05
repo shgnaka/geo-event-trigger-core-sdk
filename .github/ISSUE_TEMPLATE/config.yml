@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Project Discussion
+    url: https://github.com/shgnaka/geo-event-trigger-core-sdk/discussions
+    about: Ask questions or discuss non-actionable topics.
+

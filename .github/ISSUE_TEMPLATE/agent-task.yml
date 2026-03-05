@@ -1,0 +1,49 @@
+name: Agent Task
+description: Work item mapped to one agent responsibility
+title: "feat: [agent:<name>] "
+labels:
+  - status:triage
+  - priority:p2
+body:
+  - type: input
+    id: agent
+    attributes:
+      label: Agent
+      description: Owning agent scope (e.g., api-contract, pipeline, policy, updater)
+      placeholder: agent:api-contract
+    validations:
+      required: true
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: Concrete goal and expected outcome
+      placeholder: Implement ...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: Definition of done
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Related issues/PRs and execution order constraints
+      placeholder: Depends on #...
+  - type: textarea
+    id: test_plan
+    attributes:
+      label: Test Plan
+      description: Tests to add/run
+      placeholder: |
+        - unit:
+        - contract:
+        - security:
+

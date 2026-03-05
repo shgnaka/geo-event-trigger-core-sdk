@@ -1,0 +1,55 @@
+name: PR Policy
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  pr-policy:
+    name: pr-policy
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: read
+    steps:
+      - name: Validate PR title, branch naming, and issue linkage
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const title = pr.title || "";
+            const branch = pr.head.ref || "";
+            const body = pr.body || "";
+
+            const titlePattern = /^(feat|fix|chore|docs|refactor|test|build|ci|perf|revert|security)(\(.+\))?:\s.+/;
+            const branchPattern = /^(feat|fix|chore)\/[0-9]+-[a-z0-9._-]+$/;
+            const issuePattern = /(Closes|Close|Fixes|Fix|Resolves|Resolve|Related)\s+#\d+/i;
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100
+            });
+
+            const docsOnly = files.length > 0 && files.every(f =>
+              f.filename.startsWith("docs/") || f.filename.endsWith(".md")
+            );
+
+            const errors = [];
+            if (!titlePattern.test(title)) {
+              errors.push("PR title must follow Conventional Commits (e.g., `feat: ...`).");
+            }
+            if (!branchPattern.test(branch)) {
+              errors.push("Branch name must match `feat/<issue-id>-<scope>`, `fix/...`, or `chore/...`.");
+            }
+            if (!docsOnly && !issuePattern.test(body)) {
+              errors.push("PR body must link an Issue (`Closes #123` etc.) for non-docs-only changes.");
+            }
+
+            if (errors.length) {
+              core.setFailed(errors.join("\n"));
+            } else {
+              core.info("PR policy checks passed.");
+            }
+
