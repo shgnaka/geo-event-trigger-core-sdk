@@ -2,8 +2,8 @@
 
 ## Milestone Status
 - Current milestone: M1
-- State: in-progress
-- Last updated: 2026-03-05
+- State: done
+- Last updated: 2026-03-05 (release-tag rehearsal completed)
 
 ## Gate Checklist
 
@@ -18,7 +18,7 @@
 - [x] #5 policy control hardening
 - [x] #6 updater apply/undo + checkpoints
 - [x] #7 compatibility loader hardening
-- [ ] release-tag rehearsal
+- [x] release-tag rehearsal (`v0.1.0-rc1` temporary tag flow validated and cleaned up)
 
 ## Blockers
 - none
