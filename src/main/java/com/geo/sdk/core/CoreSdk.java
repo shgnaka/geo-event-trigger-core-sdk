@@ -367,25 +367,65 @@ public final class CoreSdk {
     }
 
     public static final class BudgetPolicyEngine implements Policy {
-        private final double askThreshold;
+        public record PolicyConfig(
+                double askThreshold,
+                boolean allowContextForceSilent,
+                boolean allowContextForceSkip) {
+        }
+
+        private final PolicyConfig config;
 
         public BudgetPolicyEngine(double askThreshold) {
-            this.askThreshold = askThreshold;
+            this(new PolicyConfig(askThreshold, true, true));
+        }
+
+        public BudgetPolicyEngine(PolicyConfig config) {
+            this.config = Objects.requireNonNull(config);
+            if (Double.isNaN(config.askThreshold()) || Double.isInfinite(config.askThreshold())) {
+                throw new IllegalArgumentException("askThreshold must be finite");
+            }
         }
 
         @Override
         public ActionPlan decide(ScoreResult score, Budget budget, Context ctx) {
-            if (score.value() < askThreshold) {
+            Objects.requireNonNull(score, "score must not be null");
+            Objects.requireNonNull(budget, "budget must not be null");
+            Objects.requireNonNull(ctx, "ctx must not be null");
+
+            Map<String, String> tags = ctx.tags() == null ? Map.of() : ctx.tags();
+            if (config.allowContextForceSilent() && isTrue(tags.get("policy_force_silent"))) {
+                return new ActionPlan(ActionType.SILENT, "forced-silent", ctx.nowEpochMs());
+            }
+            if (config.allowContextForceSkip() && isTrue(tags.get("policy_force_skip"))) {
+                return new ActionPlan(ActionType.SKIP, "forced-skip", ctx.nowEpochMs());
+            }
+
+            if (budget.dailyAskLimit() < 0 || budget.asksUsedToday() < 0 || budget.questionBudget() < 0 || budget.cooldownMs() < 0) {
+                return new ActionPlan(ActionType.SKIP, "invalid-budget", ctx.nowEpochMs());
+            }
+
+            if (Double.isNaN(score.value()) || Double.isInfinite(score.value())) {
+                return new ActionPlan(ActionType.SKIP, "invalid-score", ctx.nowEpochMs());
+            }
+
+            if (score.value() < config.askThreshold()) {
                 return new ActionPlan(ActionType.SILENT, "below-threshold", ctx.nowEpochMs());
             }
-            if (budget.questionBudget() <= 0 || budget.asksUsedToday() >= budget.dailyAskLimit()) {
-                return new ActionPlan(ActionType.SKIP, "budget-exhausted", ctx.nowEpochMs());
+            if (budget.asksUsedToday() >= budget.dailyAskLimit()) {
+                return new ActionPlan(ActionType.SKIP, "daily-limit-exhausted", ctx.nowEpochMs());
+            }
+            if (budget.questionBudget() <= 0) {
+                return new ActionPlan(ActionType.SKIP, "question-budget-exhausted", ctx.nowEpochMs());
             }
             long cooldownUntil = budget.lastAskEpochMs() + budget.cooldownMs();
             if (ctx.nowEpochMs() < cooldownUntil) {
                 return new ActionPlan(ActionType.SKIP, "cooldown-active", cooldownUntil);
             }
             return new ActionPlan(ActionType.ASK, "eligible", ctx.nowEpochMs() + budget.cooldownMs());
+        }
+
+        private static boolean isTrue(String value) {
+            return "true".equalsIgnoreCase(value);
         }
     }
 
