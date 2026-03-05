@@ -95,4 +95,12 @@ jobs:
           else
             echo "No dependency lockfile found. Skipping dependency audit."
           fi
-
+      - name: Runtime privacy audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x ci/run-security-audit.sh ]; then
+            ci/run-security-audit.sh
+          else
+            echo "No runtime privacy audit target found. Skipping."
+          fi
