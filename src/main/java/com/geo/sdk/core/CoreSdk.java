@@ -70,6 +70,7 @@ public final class CoreSdk {
     }
 
     public record FeedbackEvent(
+            String feedbackId,
             String candidateId,
             boolean positive,
             long timestampEpochMs) {
@@ -437,15 +438,50 @@ public final class CoreSdk {
     }
 
     public static final class InMemoryUpdater implements Updater {
+        public record UpdateCheckpoint(
+                String checkpointId,
+                String feedbackId,
+                String traceId,
+                long revisionBefore,
+                long revisionAfter,
+                String checksumBefore,
+                String checksumAfter) {
+        }
+
         private final double learningRate;
+        private final int maxHistory;
         private final Deque<ModelState> history = new ArrayDeque<>();
+        private final Deque<UpdateCheckpoint> checkpoints = new ArrayDeque<>();
+        private final Map<String, String> appliedFeedback = new HashMap<>();
 
         public InMemoryUpdater(double learningRate) {
+            this(learningRate, 128);
+        }
+
+        public InMemoryUpdater(double learningRate, int maxHistory) {
             this.learningRate = learningRate;
+            if (maxHistory <= 0) {
+                throw new IllegalArgumentException("maxHistory must be > 0");
+            }
+            this.maxHistory = maxHistory;
         }
 
         @Override
         public ModelState apply(FeedbackEvent feedback, ExecutionTrace trace, ModelState model) {
+            Objects.requireNonNull(feedback, "feedback must not be null");
+            Objects.requireNonNull(trace, "trace must not be null");
+            Objects.requireNonNull(model, "model must not be null");
+
+            if (feedback.feedbackId() == null || feedback.feedbackId().isBlank()) {
+                throw new IllegalArgumentException("feedback.feedbackId must not be blank");
+            }
+
+            // Idempotency: repeated apply for same feedbackId does nothing.
+            String traceChecksum = checkpointChecksum(model, trace);
+            if (appliedFeedback.containsKey(feedback.feedbackId())) {
+                return model;
+            }
+
             history.push(model);
             if (trace.selectedFeatureVector() == null) {
                 return model;
@@ -457,7 +493,20 @@ public final class CoreSdk {
                 double updated = oldWeight + (direction * feature.getValue() * learningRate);
                 nextWeights.put(feature.getKey(), updated);
             }
-            return new ModelState(model.modelVersion(), model.featureSchemaVersion(), nextWeights, model.revision() + 1);
+            ModelState updated = new ModelState(model.modelVersion(), model.featureSchemaVersion(), nextWeights, model.revision() + 1);
+
+            UpdateCheckpoint checkpoint = new UpdateCheckpoint(
+                    UUID.randomUUID().toString(),
+                    feedback.feedbackId(),
+                    trace.traceId(),
+                    model.revision(),
+                    updated.revision(),
+                    checkpointChecksum(model, trace),
+                    checkpointChecksum(updated, trace));
+            checkpoints.push(checkpoint);
+            appliedFeedback.put(feedback.feedbackId(), traceChecksum);
+            trimToMaxHistory();
+            return updated;
         }
 
         @Override
@@ -465,7 +514,39 @@ public final class CoreSdk {
             if (history.isEmpty()) {
                 throw new IllegalStateException("no-history");
             }
-            return history.pop();
+            ModelState previous = history.pop();
+            if (!checkpoints.isEmpty()) {
+                UpdateCheckpoint checkpoint = checkpoints.pop();
+                appliedFeedback.remove(checkpoint.feedbackId());
+            }
+            return previous;
+        }
+
+        public List<UpdateCheckpoint> checkpoints() {
+            return List.copyOf(checkpoints);
+        }
+
+        private void trimToMaxHistory() {
+            while (history.size() > maxHistory) {
+                history.removeLast();
+            }
+            while (checkpoints.size() > maxHistory) {
+                UpdateCheckpoint dropped = checkpoints.removeLast();
+                appliedFeedback.remove(dropped.feedbackId());
+            }
+        }
+
+        private static String checkpointChecksum(ModelState state, ExecutionTrace trace) {
+            int hash = Objects.hash(
+                    state.modelVersion(),
+                    state.featureSchemaVersion(),
+                    state.revision(),
+                    state.weights(),
+                    trace.traceId(),
+                    trace.selectedCandidate() == null ? "none" : trace.selectedCandidate().candidateId(),
+                    trace.selectedScore() == null ? 0.0 : trace.selectedScore().value(),
+                    trace.actionPlan() == null ? "none" : trace.actionPlan().reason());
+            return Integer.toHexString(hash);
         }
     }
 
