@@ -71,6 +71,57 @@ jobs:
             echo "No contract target found. Skipping."
           fi
 
+  consistency:
+    name: consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run consistency test target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x ci/run-consistency.sh ]; then
+            ci/run-consistency.sh
+          elif [ -f Makefile ] && grep -qE '^consistency:' Makefile; then
+            make consistency
+          else
+            echo "No consistency target found. Skipping."
+          fi
+
+  compatibility:
+    name: compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run compatibility test target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x ci/run-compatibility.sh ]; then
+            ci/run-compatibility.sh
+          elif [ -f Makefile ] && grep -qE '^compatibility:' Makefile; then
+            make compatibility
+          else
+            echo "No compatibility target found. Skipping."
+          fi
+
+  policy:
+    name: policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run policy test target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -x ci/run-policy.sh ]; then
+            ci/run-policy.sh
+          elif [ -f Makefile ] && grep -qE '^policy:' Makefile; then
+            make policy
+          else
+            echo "No policy target found. Skipping."
+          fi
+
   security:
     name: security
     runs-on: ubuntu-latest

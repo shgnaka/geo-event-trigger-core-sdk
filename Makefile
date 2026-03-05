@@ -1,4 +1,4 @@
-.PHONY: lint test contract security
+.PHONY: lint test contract consistency compatibility policy security
 
 lint:
 	ci/run-lint.sh
@@ -8,6 +8,15 @@ test:
 
 contract:
 	ci/run-contract.sh
+
+consistency:
+	ci/run-consistency.sh
+
+compatibility:
+	ci/run-compatibility.sh
+
+policy:
+	ci/run-policy.sh
 
 security:
 	@if [ -x .github/workflows/ci.yml ]; then echo "security gate is on GitHub Actions"; fi
