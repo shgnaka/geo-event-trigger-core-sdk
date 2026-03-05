@@ -2,8 +2,8 @@
 
 ## Milestone Status
 - Current milestone: M2
-- State: in-progress
-- Last updated: 2026-03-05 (M2 formal release started)
+- State: done
+- Last updated: 2026-03-05 (v0.1.0 formal release published)
 
 ## Gate Checklist
 
@@ -22,9 +22,9 @@
 
 ### M2
 - [x] formal release automation prepared (`scripts/release.sh`, runbook)
-- [ ] `v0.1.0` tag created on origin
-- [ ] GitHub Release published (`isDraft=false`, `isPrerelease=false`)
-- [ ] release URL recorded
+- [x] `v0.1.0` tag created on origin
+- [x] GitHub Release published (`isDraft=false`, `isPrerelease=false`)
+- [x] release URL recorded: `https://github.com/shgnaka/geo-event-trigger-core-sdk/releases/tag/v0.1.0`
 
 ## Blockers
 - none
