@@ -558,21 +558,97 @@ public final class CoreSdk {
     }
 
     public static final class CompatibilityLoader {
-        public ModelState load(PersistedModel persisted, String targetModelVersion, String targetFeatureSchemaVersion) {
-            Map<String, Double> migrated = new HashMap<>(persisted.weights());
+        public record CompatibilityLoadResult(
+                ModelState modelState,
+                List<String> appliedMigrations,
+                List<String> warnings) {
+            public CompatibilityLoadResult {
+                appliedMigrations = List.copyOf(appliedMigrations);
+                warnings = List.copyOf(warnings);
+            }
+        }
 
-            if ("1".equals(persisted.featureSchemaVersion()) && "2".equals(targetFeatureSchemaVersion)) {
+        private static final int MIN_SUPPORTED_SCHEMA_VERSION = 1;
+        private static final int MAX_SUPPORTED_SCHEMA_VERSION = 2;
+        private static final int MIN_SUPPORTED_MODEL_VERSION = 1;
+        private static final int MAX_SUPPORTED_MODEL_VERSION = 2;
+
+        public ModelState load(PersistedModel persisted, String targetModelVersion, String targetFeatureSchemaVersion) {
+            return loadWithReport(persisted, targetModelVersion, targetFeatureSchemaVersion).modelState();
+        }
+
+        public CompatibilityLoadResult loadWithReport(
+                PersistedModel persisted,
+                String targetModelVersion,
+                String targetFeatureSchemaVersion) {
+            Objects.requireNonNull(persisted, "persisted must not be null");
+            Objects.requireNonNull(targetModelVersion, "targetModelVersion must not be null");
+            Objects.requireNonNull(targetFeatureSchemaVersion, "targetFeatureSchemaVersion must not be null");
+
+            int sourceSchema = parseVersion("feature schema", persisted.featureSchemaVersion());
+            int targetSchema = parseVersion("target feature schema", targetFeatureSchemaVersion);
+            int sourceModel = parseVersion("model", persisted.modelVersion());
+            int targetModel = parseVersion("target model", targetModelVersion);
+
+            enforceSupportedRange("feature schema", sourceSchema, MIN_SUPPORTED_SCHEMA_VERSION, MAX_SUPPORTED_SCHEMA_VERSION);
+            enforceSupportedRange("target feature schema", targetSchema, MIN_SUPPORTED_SCHEMA_VERSION, MAX_SUPPORTED_SCHEMA_VERSION);
+            enforceSupportedRange("model", sourceModel, MIN_SUPPORTED_MODEL_VERSION, MAX_SUPPORTED_MODEL_VERSION);
+            enforceSupportedRange("target model", targetModel, MIN_SUPPORTED_MODEL_VERSION, MAX_SUPPORTED_MODEL_VERSION);
+
+            if (targetSchema < sourceSchema) {
+                throw new IllegalArgumentException("schema downgrade is not supported");
+            }
+            if (targetModel < sourceModel) {
+                throw new IllegalArgumentException("model downgrade is not supported");
+            }
+
+            Map<String, Double> migrated = new HashMap<>(persisted.weights() == null ? Map.of() : persisted.weights());
+            List<String> migrations = new ArrayList<>();
+            List<String> warnings = new ArrayList<>();
+
+            if (sourceSchema == 1 && targetSchema >= 2) {
                 if (migrated.containsKey("stay")) {
                     migrated.put("dwell", migrated.get("stay"));
+                    migrations.add("schema:1->2:stay-to-dwell");
+                } else {
+                    warnings.add("schema:1->2:missing-stay-weight");
                 }
                 migrated.putIfAbsent("night_bonus", 0.0d);
+                migrations.add("schema:1->2:add-night_bonus-default");
             }
 
-            if (!targetFeatureSchemaVersion.equals(persisted.featureSchemaVersion())) {
+            if (targetSchema != sourceSchema) {
                 migrated.putIfAbsent("schema_migration_bias", 0.0d);
+                migrations.add("schema:*:add-schema_migration_bias");
             }
 
-            return new ModelState(targetModelVersion, targetFeatureSchemaVersion, migrated, persisted.revision());
+            if (sourceModel == 1 && targetModel >= 2) {
+                migrated.putIfAbsent("model_migration_bias", 0.0d);
+                migrations.add("model:1->2:add-model_migration_bias");
+            }
+
+            // Fill baseline required weights for scorer stability.
+            migrated.putIfAbsent("presence", 0.0d);
+            migrated.putIfAbsent("hour_of_day", 0.0d);
+            migrated.putIfAbsent("dwell", 0.0d);
+            migrated.putIfAbsent("night_bonus", 0.0d);
+
+            ModelState modelState = new ModelState(targetModelVersion, targetFeatureSchemaVersion, migrated, persisted.revision());
+            return new CompatibilityLoadResult(modelState, migrations, warnings);
+        }
+
+        private static int parseVersion(String field, String value) {
+            try {
+                return Integer.parseInt(value);
+            } catch (RuntimeException ex) {
+                throw new IllegalArgumentException(field + " version must be integer: " + value, ex);
+            }
+        }
+
+        private static void enforceSupportedRange(String field, int version, int min, int max) {
+            if (version < min || version > max) {
+                throw new IllegalArgumentException(field + " version unsupported: " + version);
+            }
         }
     }
 
