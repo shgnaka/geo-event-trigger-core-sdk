@@ -31,6 +31,7 @@ public final class SdkTestMain {
         testPolicyBoundaries();
         testPolicyForceAndValidationControls();
         testUpdaterUndoAndDeterminism();
+        testUpdaterIdempotencyAndCheckpointing();
         testCompatibilityLoad();
     }
 
@@ -204,7 +205,7 @@ public final class SdkTestMain {
         Budget budget = new Budget(10, 0, 5, 1000L, 0L);
 
         PipelineOutcome first = engine.run(input, ctx, budget, base);
-        ModelState updated = updater.apply(new FeedbackEvent(first.trace().selectedCandidate().candidateId(), true, 9_000L), first.trace(), base);
+        ModelState updated = updater.apply(new FeedbackEvent("fb-1", first.trace().selectedCandidate().candidateId(), true, 9_000L), first.trace(), base);
 
         ModelState rolledBack = updater.undo();
         assertEquals(base.weights(), rolledBack.weights(), "undo should restore exact previous weights");
@@ -215,6 +216,30 @@ public final class SdkTestMain {
 
         boolean changedAnyWeight = !updated.weights().equals(base.weights());
         assertTrue(changedAnyWeight, "positive feedback should update weights");
+    }
+
+    private static void testUpdaterIdempotencyAndCheckpointing() {
+        PipelineEngine engine = CoreSdk.defaultEngine();
+        ModelState base = CoreSdk.defaultModel();
+        InMemoryUpdater updater = new InMemoryUpdater(0.01, 4);
+
+        InputEvent input = new InputEvent("evt-up2", 35.0, 139.0, 1000L, Map.of("dwell_minutes", "7"));
+        Context ctx = new Context(8_000L, "Asia/Tokyo", Map.of());
+        Budget budget = new Budget(10, 0, 5, 1000L, 0L);
+        PipelineOutcome outcome = engine.run(input, ctx, budget, base);
+
+        FeedbackEvent feedback = new FeedbackEvent("fb-idem", outcome.trace().selectedCandidate().candidateId(), true, 9_000L);
+        ModelState once = updater.apply(feedback, outcome.trace(), base);
+        ModelState twice = updater.apply(feedback, outcome.trace(), once);
+
+        assertEquals(once.weights(), twice.weights(), "duplicate feedback id should not be applied twice");
+        assertEquals(once.revision(), twice.revision(), "duplicate feedback id should not advance revision");
+
+        assertEquals(1, updater.checkpoints().size(), "exactly one checkpoint should be stored");
+        InMemoryUpdater.UpdateCheckpoint checkpoint = updater.checkpoints().get(0);
+        assertEquals("fb-idem", checkpoint.feedbackId(), "checkpoint should capture feedback id");
+        assertEquals(base.revision(), checkpoint.revisionBefore(), "checkpoint revision before");
+        assertEquals(once.revision(), checkpoint.revisionAfter(), "checkpoint revision after");
     }
 
     private static void testCompatibilityLoad() {
