@@ -29,6 +29,7 @@ public final class SdkTestMain {
         testPipelineSkipsWhenNoScorableCandidate();
         testPipelineContinuesAfterCandidateFailure();
         testPolicyBoundaries();
+        testPolicyForceAndValidationControls();
         testUpdaterUndoAndDeterminism();
         testCompatibilityLoad();
     }
@@ -154,9 +155,13 @@ public final class SdkTestMain {
         ActionPlan below = policy.decide(new ScoreResult(0.1, "1", "t1"), new Budget(2, 0, 2, 1000L, 0L), ctx);
         assertEquals(ActionType.SILENT, below.type(), "below threshold should be silent");
 
-        ActionPlan budgetExhausted = policy.decide(new ScoreResult(0.9, "1", "t2"), new Budget(1, 1, 0, 1000L, 0L), ctx);
-        assertEquals(ActionType.SKIP, budgetExhausted.type(), "budget exhausted should skip");
-        assertEquals("budget-exhausted", budgetExhausted.reason(), "budget exhausted reason");
+        ActionPlan dailyExhausted = policy.decide(new ScoreResult(0.9, "1", "t2"), new Budget(1, 1, 2, 1000L, 0L), ctx);
+        assertEquals(ActionType.SKIP, dailyExhausted.type(), "daily cap exhausted should skip");
+        assertEquals("daily-limit-exhausted", dailyExhausted.reason(), "daily cap reason");
+
+        ActionPlan questionBudgetExhausted = policy.decide(new ScoreResult(0.9, "1", "t2b"), new Budget(3, 1, 0, 1000L, 0L), ctx);
+        assertEquals(ActionType.SKIP, questionBudgetExhausted.type(), "question budget exhausted should skip");
+        assertEquals("question-budget-exhausted", questionBudgetExhausted.reason(), "question budget reason");
 
         ActionPlan cooldown = policy.decide(new ScoreResult(0.9, "1", "t3"), new Budget(3, 0, 3, 10_000L, 3_000L), ctx);
         assertEquals(ActionType.SKIP, cooldown.type(), "cooldown should skip ask");
@@ -164,6 +169,29 @@ public final class SdkTestMain {
 
         ActionPlan ask = policy.decide(new ScoreResult(0.9, "1", "t4"), new Budget(3, 0, 3, 1000L, 1_000L), ctx);
         assertEquals(ActionType.ASK, ask.type(), "eligible score should ask");
+    }
+
+    private static void testPolicyForceAndValidationControls() {
+        Policy policy = new BudgetPolicyEngine(0.2);
+
+        Context forcedSilentCtx = new Context(5_000L, "Asia/Tokyo", Map.of("policy_force_silent", "true"));
+        ActionPlan forcedSilent = policy.decide(new ScoreResult(1.0, "1", "f1"), new Budget(3, 0, 3, 1000L, 0L), forcedSilentCtx);
+        assertEquals(ActionType.SILENT, forcedSilent.type(), "force-silent tag should override ask");
+        assertEquals("forced-silent", forcedSilent.reason(), "force-silent reason");
+
+        Context forcedSkipCtx = new Context(5_000L, "Asia/Tokyo", Map.of("policy_force_skip", "true"));
+        ActionPlan forcedSkip = policy.decide(new ScoreResult(1.0, "1", "f2"), new Budget(3, 0, 3, 1000L, 0L), forcedSkipCtx);
+        assertEquals(ActionType.SKIP, forcedSkip.type(), "force-skip tag should override ask");
+        assertEquals("forced-skip", forcedSkip.reason(), "force-skip reason");
+
+        Context normalCtx = new Context(5_000L, "Asia/Tokyo", Map.of());
+        ActionPlan invalidBudget = policy.decide(new ScoreResult(1.0, "1", "f3"), new Budget(-1, 0, 3, 1000L, 0L), normalCtx);
+        assertEquals(ActionType.SKIP, invalidBudget.type(), "invalid budget should skip");
+        assertEquals("invalid-budget", invalidBudget.reason(), "invalid budget reason");
+
+        ActionPlan invalidScore = policy.decide(new ScoreResult(Double.NaN, "1", "f4"), new Budget(3, 0, 3, 1000L, 0L), normalCtx);
+        assertEquals(ActionType.SKIP, invalidScore.type(), "invalid score should skip");
+        assertEquals("invalid-score", invalidScore.reason(), "invalid score reason");
     }
 
     private static void testUpdaterUndoAndDeterminism() {
