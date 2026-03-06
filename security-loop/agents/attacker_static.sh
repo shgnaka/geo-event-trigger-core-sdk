@@ -9,6 +9,16 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
+search() {
+  local pattern="$1"
+  shift
+  if command -v rg >/dev/null 2>&1; then
+    rg -n "$pattern" "$@"
+  else
+    grep -R -n -E "$pattern" "$@"
+  fi
+}
+
 tmp_findings="$(mktemp)"
 trap 'rm -f "$tmp_findings"' EXIT
 
@@ -50,7 +60,7 @@ while IFS= read -r line; do
     continue
   fi
   printf "%s\n" "$line" >>"$tmp_unpinned"
-done < <(rg -n 'uses:[[:space:]]*[^[:space:]]+@[^[:space:]]+' .github/workflows 2>/dev/null || true)
+done < <(search 'uses:[[:space:]]*[^[:space:]]+@[^[:space:]]+' .github/workflows 2>/dev/null || true)
 
 if [ -s "$tmp_unpinned" ]; then
   count="$(wc -l <"$tmp_unpinned" | tr -d ' ')"
@@ -66,7 +76,7 @@ fi
 rm -f "$tmp_unpinned"
 
 # 2) Detect broad write-all permissions.
-if rg -n 'permissions:[[:space:]]*write-all' .github/workflows >/tmp/security-loop-write-all.txt 2>/dev/null; then
+if search 'permissions:[[:space:]]*write-all' .github/workflows >/tmp/security-loop-write-all.txt 2>/dev/null; then
   evidence="$(head -n1 /tmp/security-loop-write-all.txt)"
   add_finding \
     "PERM-WRITEALL-001" \
@@ -79,7 +89,7 @@ fi
 rm -f /tmp/security-loop-write-all.txt
 
 # 3) Detect suspicious curl|bash style execution in scripts/workflows.
-if rg -n 'curl[^|]*\|\s*(bash|sh)|wget[^|]*\|\s*(bash|sh)' scripts .github/workflows >/tmp/security-loop-curlpipe.txt 2>/dev/null; then
+if search 'curl[^|]*\|\s*(bash|sh)|wget[^|]*\|\s*(bash|sh)' scripts .github/workflows >/tmp/security-loop-curlpipe.txt 2>/dev/null; then
   evidence="$(head -n1 /tmp/security-loop-curlpipe.txt)"
   add_finding \
     "SUPPLY-CURLPIPE-001" \
