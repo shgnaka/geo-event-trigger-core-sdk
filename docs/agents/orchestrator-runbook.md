@@ -42,6 +42,7 @@ Issue: #2 (`agent:orchestrator`)
 - `security` 失敗: all lanes freeze except security fix
 - 互換性破壊: merge freeze, owner=`agent:compat`
 - 2回連続で同一check失敗: PMへ escalation
+- `risk:medium` security issue の未アサインが次スプリント開始時点で残存: merge順を security fix 優先へ再計画
 
 ## Escalation SLA
 - Critical (`security`): 4時間以内に一次対処
