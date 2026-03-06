@@ -26,6 +26,7 @@ Issue: #1 (`agent:pm`)
 - If blocker exceeds SLA:
   - escalate to PM decision log
   - freeze dependent lane until owner and ETA are explicit
+- CI障害判定は `docs/agents/ci-incident-runbook.md` に従う
 
 ## Acceptance Gates
 ### M0 Gate

@@ -51,6 +51,7 @@ Issue: #2 (`agent:orchestrator`)
 ## Artifacts
 - 決定ログ: `docs/agents/orchestrator-decision-log.md`
 - 週次サマリ: `docs/agents/orchestrator-weekly-template.md`
+- CI障害対応: `docs/agents/ci-incident-runbook.md`
 
 ## Integration Lane Extension
 - Lane I1 (Distribution): artifact baseline and version coordinates.
