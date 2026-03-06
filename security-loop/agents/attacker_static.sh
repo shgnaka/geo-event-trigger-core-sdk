@@ -12,10 +12,18 @@ fi
 search() {
   local pattern="$1"
   shift
-  if command -v rg >/dev/null 2>&1; then
-    rg -n "$pattern" "$@"
+  if [ "${FORCE_GREP:-0}" != "1" ] && command -v rg >/dev/null 2>&1; then
+    if [ "$#" -gt 0 ]; then
+      rg -n "$pattern" "$@"
+    else
+      rg -n "$pattern"
+    fi
   else
-    grep -R -n -E "$pattern" "$@"
+    if [ "$#" -gt 0 ]; then
+      grep -R -n -E "$pattern" "$@"
+    else
+      grep -n -E "$pattern"
+    fi
   fi
 }
 
