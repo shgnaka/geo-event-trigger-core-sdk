@@ -51,3 +51,9 @@ Issue: #2 (`agent:orchestrator`)
 ## Artifacts
 - 決定ログ: `docs/agents/orchestrator-decision-log.md`
 - 週次サマリ: `docs/agents/orchestrator-weekly-template.md`
+
+## Integration Lane Extension
+- Lane I1 (Distribution): artifact baseline and version coordinates.
+- Lane I2 (Adoption): quick-start docs and minimal wrapper sample.
+- Lane I3 (Compliance): security audit against integration assets.
+- Stop condition: if I3 fails, freeze I2 merge until remediation evidence is attached.

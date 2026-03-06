@@ -29,4 +29,18 @@ if rg -n -P "$LOG_CALL_PATTERN" "$TARGET_DIR" | rg -n "$SENSITIVE_PATTERN"; then
   exit 1
 fi
 
+# 4) Integration assets should not introduce network defaults.
+if [ -d "examples" ]; then
+  if rg -n "http://|https://|import java\\.net\\.|HttpClient|URLConnection|OkHttp|Retrofit|WebSocket" examples; then
+    echo "Security audit failed: integration example contains network transfer defaults."
+    exit 1
+  fi
+fi
+
+# 5) Integration docs/examples should avoid raw location payload logging samples.
+if rg -n "System\\.out|logger\\.|\\blog\\s*\\(" examples docs/quick-start.md 2>/dev/null | rg -n "lat|lon|latitude|longitude|location|InputEvent|Context"; then
+  echo "Security audit failed: integration assets contain sensitive logging examples."
+  exit 1
+fi
+
 echo "security-audit: ok"

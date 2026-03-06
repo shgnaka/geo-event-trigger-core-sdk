@@ -43,3 +43,8 @@ Issue: #1 (`agent:pm`)
 - Keep acceptance board current
 - Resolve priority conflicts with Orchestrator
 - Record acceptance/rejection rationale
+
+## Integration Lane (App Onboarding)
+- Keep `docs/integration/integration-lane.md` aligned with current acceptance criteria.
+- Track onboarding blockers for artifact/docs/sample/security in daily triage.
+- Require integration verification evidence before marking lane `done`.
