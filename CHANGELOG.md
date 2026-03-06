@@ -7,16 +7,18 @@ The format follows Keep a Changelog style with project-specific integration note
 ### Added
 - Two-stage security loop framework (`security-loop/run.sh`, attacker/defender agents, JSON schemas).
 - Security runbook for two-stage operation (`docs/agents/security-two-stage-runbook.md`).
+- Maven Central publish workflow (`.github/workflows/publish-central.yml`).
 
 ### Changed
 - CI `security` job now runs security-loop and uploads JSON artifacts.
 - `risk:medium` findings are tracked through automated issue workflow and PM/Orchestrator cadence rules.
+- Gradle publish config now includes signing, sources/javadoc jars, and Central-ready POM metadata.
 
 ### Fixed
 - None.
 
 ### Security
-- None.
+- Release publish pipeline enforces quality gates + high-threshold security-loop before publish.
 
 ### Integration Notes
 - Security reports are now emitted as CI artifacts for integration-facing audit evidence.

@@ -6,6 +6,24 @@
   <version>0.1.0</version>
   <name>geo-event-trigger-core-sdk</name>
   <description>Context intervention core SDK</description>
+  <url>https://github.com/shgnaka/geo-event-trigger-core-sdk</url>
+  <licenses>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/licenses/MIT</url>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>shgnaka</id>
+      <name>shgnaka</name>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://github.com/shgnaka/geo-event-trigger-core-sdk.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/shgnaka/geo-event-trigger-core-sdk.git</developerConnection>
+    <url>https://github.com/shgnaka/geo-event-trigger-core-sdk</url>
+  </scm>
   <properties>
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
