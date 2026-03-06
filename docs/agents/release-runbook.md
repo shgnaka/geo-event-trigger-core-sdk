@@ -33,4 +33,5 @@ scripts/release.sh v0.1.0 shgnaka/geo-event-trigger-core-sdk
 ## Post Steps
 1. Update `docs/agents/acceptance-board.md` M2 checklist
 2. Ensure `CHANGELOG.md` has finalized `v0.1.0` notes
-3. Confirm open issues/PRs relevant to release are triaged
+3. Validate release note format with `docs/agents/release-notes-style-guide.md`
+4. Confirm open issues/PRs relevant to release are triaged
