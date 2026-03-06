@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://geo-event-trigger-core-sdk/security-loop/schema/defender-report.schema.json",
+  "title": "Defender Report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "module",
+    "generated_at",
+    "remediations"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "module": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "remediations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/remediation"
+      }
+    }
+  },
+  "$defs": {
+    "remediation": {
+      "type": "object",
+      "required": [
+        "finding_id",
+        "module",
+        "severity",
+        "fix_strategy",
+        "patch_scope",
+        "validation_steps",
+        "residual_risk"
+      ],
+      "properties": {
+        "finding_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "module": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low",
+            "info"
+          ]
+        },
+        "fix_strategy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "patch_scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "validation_steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "residual_risk": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

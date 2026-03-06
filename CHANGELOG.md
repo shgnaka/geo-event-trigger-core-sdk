@@ -5,10 +5,12 @@ The format follows Keep a Changelog style with project-specific integration note
 
 ## [Unreleased]
 ### Added
-- None.
+- Two-stage security loop framework (`security-loop/run.sh`, attacker/defender agents, JSON schemas).
+- Security runbook for two-stage operation (`docs/agents/security-two-stage-runbook.md`).
 
 ### Changed
-- None.
+- CI `security` job now runs security-loop and uploads JSON artifacts.
+- `risk:medium` findings are tracked through automated issue workflow and PM/Orchestrator cadence rules.
 
 ### Fixed
 - None.
@@ -17,7 +19,7 @@ The format follows Keep a Changelog style with project-specific integration note
 - None.
 
 ### Integration Notes
-- None.
+- Security reports are now emitted as CI artifacts for integration-facing audit evidence.
 
 ### Breaking Changes
 - None.

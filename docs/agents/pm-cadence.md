@@ -27,6 +27,7 @@ Issue: #1 (`agent:pm`)
   - escalate to PM decision log
   - freeze dependent lane until owner and ETA are explicit
 - CI障害判定は `docs/agents/ci-incident-runbook.md` に従う
+- `risk:medium` security issue は次スプリント開始までに owner + ETA を必須化
 
 ## Acceptance Gates
 ### M0 Gate

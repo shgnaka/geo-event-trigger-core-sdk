@@ -14,10 +14,10 @@
 | Compatibility loading + migration report | Implemented | `CompatibilityLoader.loadWithReport`, `testCompatibilityLoad` |
 | Downgrade rejection and unsupported version failure | Implemented | `CompatibilityLoader`, `testCompatibilityRejectsUnsupportedOrDowngrade` |
 | No external transfer / log minimization runtime gate | Implemented | `ci/run-security-audit.sh`, `docs/agents/security-audit-controls.md` |
+| Two-stage attacker/defender security loop with high+ gate and medium tracking | Implemented | `security-loop/run.sh`, `.github/workflows/ci.yml`, `docs/agents/security-two-stage-runbook.md` |
 | Formal release operation (`v0.1.0`) | Implemented | `scripts/release.sh`, release `v0.1.0` |
 | Android wrapper implementation | Deferred | out-of-scope for core SDK repo |
 
 ## Deferred Items
 - Android wrapper/app integration.
 - Domain-specific UI flow and copy.
-
